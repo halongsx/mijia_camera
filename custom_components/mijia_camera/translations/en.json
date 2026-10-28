@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Login to Mi Home account",
+        "data": {
+          "username": "Mi Home account (phone/email)",
+          "password": "Password",
+          "country": "Region",
+          "mode": "Streaming mode",
+          "relay_host": "Relay host (go2rtc/mediaMTX), e.g. 192.168.1.10:8554"
+        }
+      },
+      "select": {
+        "title": "Select cameras",
+        "data": {
+          "devices": "Cameras to add"
+        }
+      },
+      "credentials": {
+        "title": "Local RTSP credentials",
+        "description": "Enable 'LAN view' in the Mi Home app to get the RTSP username/password (verification code), then fill per camera.",
+        "data": {}
+      }
+    },
+    "error": {
+      "invalid_auth": "Login failed. Check account/password or Xiaomi risk control.",
+      "no_cameras": "No cameras found under this account."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
+    }
+  },
+  "entity": {
+    "camera": {
+      "name": "Mijia Camera"
+    }
+  }
+}
