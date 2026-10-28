@@ -1,0 +1,7 @@
+{
+  "name": "Mijia Camera",
+  "homeassistant": "2024.1.0",
+  "hacs": "1.32.0",
+  "country": ["CN"],
+  "render_readme": true
+}
