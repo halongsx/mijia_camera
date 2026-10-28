@@ -19,8 +19,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = MijiaCoordinator(hass)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"coordinator": coordinator}
 
-    await coordinator.async_config_entry_first_refresh()
+    # 注意：不要在此阻塞等待首次刷新（async_config_entry_first_refresh）。
+    # 当官方 Xiaomi Home 设备数据尚未就绪、刷新抛 UpdateFailed 时，会触发
+    # ConfigEntryNotReady，使整个集成 setup 中止，已配置的 camera 实体会全部
+    # 变成「不再提供此实体」。改为直接转发平台 setup，由 camera 平台内部触发
+    # 刷新并在失败时兜底创建实体；这里再补一次后台刷新供后续自动更新。
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    hass.async_create_task(coordinator.async_request_refresh())
     return True
 
 
