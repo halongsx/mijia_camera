@@ -121,17 +121,12 @@ class MijiaCamera(Camera):
 
     @property
     def available(self) -> bool:
-        # 云端中继模式：本意是绕开官方「同子网 / 在线」限制，可用性只取决于中继
-        # 地址是否已配置（实体能被创建就说明已配置），能否真正出流交给 go2rtc /
-        # RTSP 连接本身决定。绝对不能再用官方的 online 标志，否则跨子网设备会被
-        # 误判为离线，连带把我们的实体置为「不可用」，用户无从排查。
-        if self._mode == MODE_RELAY:
-            return True
-        # 本地模式：以「能否拿到本地 IP」作为可用性依据。官方的 online 标志受
-        # 同子网限制不可靠（跨子网设备会被判离线），不应据此判定实体不可用。
-        data = self.coordinator.data or {}
-        info = data.get(self._did, self._info)
-        return bool(info.get("local_ip") or "")
+        # 实体一旦被创建即视为可用。能否真正出流交给 RTSP / go2rtc 连接本身判断，
+        # 绝不再依赖官方的 online 标志、local_ip 或 coordinator 刷新结果——
+        # 否则在跨子网 / 官方数据未就绪 / 刷新失败时，实体会被整块置灰为
+        # 「此实体不可用」，用户连具体的流错误都看不到，无从排查。
+        # 即使底层流暂时连不上，HA 也会在前端显示流错误信息，便于定位。
+        return True
 
     @property
     def stream_source(self) -> str | None:
