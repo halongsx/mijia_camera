@@ -1,12 +1,20 @@
-"""米家云客户端：登录并获取摄像头设备列表。
+"""设备来源：读取官方 Xiaomi Home 集成已下载的设备清单。
 
-基于社区库 `micloud`（PyPI）实现登录与设备发现。
-所有阻塞调用通过 executor 执行，避免阻塞 Home Assistant 事件循环。
+本集成不自行登录小米账号，而是复用官方 Xiaomi Home 集成（xiaomi_home）
+已经登录并缓存到 Home Assistant `.storage/xiaomi_home/` 目录下的设备列表。
+这样彻底绕开小米账号的登录风控，也无需任何小米云签名 / 令牌 / 密码。
 """
 from __future__ import annotations
 
+import glob
+import json
 import logging
+import os
 from typing import Any
+
+from homeassistant.core import HomeAssistant
+
+from .const import XIAOMI_HOME_STORAGE_DIR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,14 +27,14 @@ class CameraInfo:
         did: str,
         name: str,
         model: str,
-        localip: str,
+        local_ip: str,
         token: str,
         online: bool,
     ) -> None:
         self.did = did
         self.name = name
         self.model = model
-        self.localip = localip
+        self.local_ip = local_ip
         self.token = token
         self.online = online
 
@@ -35,65 +43,65 @@ class CameraInfo:
             "did": self.did,
             "name": self.name,
             "model": self.model,
-            "localip": self.localip,
+            "local_ip": self.local_ip,
             "token": self.token,
             "online": self.online,
         }
 
 
-class MijiaClient:
-    """米家账号客户端（封装 micloud）。"""
+def storage_dir(hass: HomeAssistant) -> str:
+    """返回官方 Xiaomi Home 集成的 storage 目录。"""
+    return hass.config.path(XIAOMI_HOME_STORAGE_DIR)
 
-    def __init__(self, username: str, password: str, country: str = "cn") -> None:
-        self._username = username
-        self._password = password
-        self._country = country
-        self._cloud = None
 
-    def login(self) -> bool:
-        """登录米家云（同步，需在 executor 中调用）。
-
-        返回 True 表示登录成功；False 表示账号/密码错误或被风控。
-        """
+def _iter_device_files(hass: HomeAssistant):
+    """遍历官方集成 storage 目录下所有设备 JSON 文件。"""
+    base = storage_dir(hass)
+    if not os.path.isdir(base):
+        _LOGGER.debug("xiaomi_home storage 目录不存在：%s", base)
+        return
+    for path in glob.glob(os.path.join(base, "**", "*.json"), recursive=True):
+        if "miot_devices" not in os.path.basename(path):
+            continue
         try:
-            from micloud import MiCloud  # 延迟导入，避免未安装时影响集成加载
-        except ImportError as err:  # pragma: no cover
-            _LOGGER.error("未安装 micloud 库：%s", err)
-            return False
-        try:
-            self._cloud = MiCloud(self._username, self._password)
-            if not self._cloud.login():
-                _LOGGER.warning("米家账号登录失败（账号/密码错误或触发风控）")
-                return False
-            return True
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
         except Exception as err:  # noqa: BLE001
-            _LOGGER.exception("米家登录异常：%s", err)
-            return False
+            _LOGGER.debug("读取设备文件失败 %s: %s", path, err)
+            continue
+        if isinstance(data, dict):
+            yield data
 
-    def get_cameras(self) -> list[CameraInfo]:
-        """获取账号下所有摄像头设备（同步，需在 executor 中调用）。"""
-        if self._cloud is None:
-            return []
-        try:
-            devices = self._cloud.get_devices(country=self._country) or []
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.exception("获取设备列表异常：%s", err)
-            return []
-        cameras: list[CameraInfo] = []
-        for dev in devices:
-            model = (dev.get("model") or "").lower()
-            if "camera" not in model:
-                continue
-            did = str(dev.get("did"))
-            name = dev.get("name") or did or "未知设备"
-            cameras.append(
-                CameraInfo(
-                    did=did,
-                    name=name,
-                    model=dev.get("model") or "",
-                    localip=dev.get("localip") or "",
-                    token=dev.get("token") or "",
-                    online=bool(dev.get("online", False)),
-                )
+
+def load_all_devices(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
+    """读取官方集成的全部设备（以 did 为键去重）。"""
+    devices: dict[str, dict[str, Any]] = {}
+    for data in _iter_device_files(hass):
+        for did, dev in data.items():
+            if isinstance(dev, dict) and "model" in dev:
+                devices[str(did)] = dev
+    return devices
+
+
+def discover_cameras(hass: HomeAssistant) -> list[CameraInfo]:
+    """筛选官方集成设备中的摄像头（以 did 去重）。"""
+    cameras: list[CameraInfo] = []
+    seen: set[str] = set()
+    for did, dev in load_all_devices(hass).items():
+        if did in seen:
+            continue
+        model = (dev.get("model") or "").lower()
+        if "camera" not in model:
+            continue
+        seen.add(did)
+        cameras.append(
+            CameraInfo(
+                did=str(did),
+                name=dev.get("name") or str(did),
+                model=dev.get("model") or "",
+                local_ip=dev.get("local_ip") or "",
+                token=dev.get("token") or "",
+                online=bool(dev.get("online", False)),
             )
-        return cameras
+        )
+    return cameras
