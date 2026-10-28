@@ -109,7 +109,32 @@ class MijiaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
             }
         )
-        return self.async_show_form(step_id="select", data_schema=schema)
+
+        if self._mode == MODE_RELAY:
+            note = (
+                "【云端中继模式】本集成通过 go2rtc 读取摄像机流，"
+                "无需摄像机与 HA 在同一子网（适合摄像机跨网段 / 不在同一局域网的场景）。\n\n"
+                "前置步骤：\n"
+                "1) 安装并运行 go2rtc（HA 加载项 / Docker 均可）；\n"
+                "2) 在 go2rtc 的 Web UI 用小米账号登录一次（支持账号密码 + 验证码），"
+                "它会自动拿到小米云 service_token；\n"
+                "   或在其配置中加入 `xiaomi:` 令牌块。\n"
+                "3) 在 go2rtc 中为每台摄像机建立「流名 = 设备 DID」的流（见下方清单），"
+                "本集成随后读取 rtsp://<go2rtc地址>/<DID>。\n\n"
+                "各摄像机 DID / 型号（用于在 go2rtc 中建流，流名必须恰好等于 DID）：\n"
+                + "\n".join(
+                    f"• {c.name}  |  did={c.did}  |  model={c.model}"
+                    for c in self._cameras
+                )
+            )
+        else:
+            note = "请勾选要接入的摄像头。"
+
+        return self.async_show_form(
+            step_id="select",
+            data_schema=schema,
+            description_placeholders={"note": note},
+        )
 
     async def async_step_credentials(
         self, user_input: dict[str, Any] | None = None
