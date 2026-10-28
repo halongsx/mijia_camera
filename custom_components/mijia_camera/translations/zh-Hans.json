@@ -2,11 +2,9 @@
   "config": {
     "step": {
       "user": {
-        "title": "登录米家账号",
+        "title": "米家摄像头配置",
+        "description": "本集成复用官方「Xiaomi Home 米家集成」的登录态与设备列表，无需输入米家账号密码。请先安装并登录官方 Xiaomi Home 集成，并确保摄像头已同步到该集成。",
         "data": {
-          "username": "米家账号（手机号/邮箱）",
-          "password": "密码",
-          "country": "地区",
           "mode": "取流方式",
           "relay_host": "中继地址（go2rtc/mediaMTX），如 192.168.1.10:8554"
         }
@@ -19,16 +17,16 @@
       },
       "credentials": {
         "title": "本地 RTSP 凭据",
-        "description": "在米家 APP 中进入对应摄像头 → 设置 → 打开“局域网查看”，页面会显示 RTSP 用户名与密码（验证码），请按摄像头逐一填写。字段名格式为 u_<设备ID> / p_<设备ID>。",
+        "description": "在米家 APP 中进入对应摄像头 → 设置 → 打开“局域网查看”，页面会显示 RTSP 用户名与密码（验证码），请按摄像头逐一填写。",
         "data": {}
       }
     },
     "error": {
-      "invalid_auth": "登录失败，请检查账号/密码或小米风控。",
-      "no_cameras": "该账号下未发现摄像头。"
+      "no_xiaomi_home": "未检测到已登录的官方 Xiaomi Home 集成，请先安装并登录。",
+      "no_cameras": "官方集成下未发现摄像头。"
     },
     "abort": {
-      "already_configured": "该账号已配置。"
+      "already_configured": "米家摄像头已配置。"
     }
   },
   "entity": {
