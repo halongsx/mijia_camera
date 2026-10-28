@@ -3,10 +3,11 @@ from __future__ import annotations
 
 DOMAIN = "mijia_camera"
 
+# 官方 Xiaomi Home 集成（提供登录态与设备列表）
+XIAOMI_HOME_DOMAIN = "xiaomi_home"
+XIAOMI_HOME_STORAGE_DIR = ".storage/xiaomi_home"
+
 # 配置键
-CONF_USERNAME = "username"
-CONF_PASSWORD = "password"
-CONF_COUNTRY = "country"
 CONF_MODE = "mode"
 CONF_RELAY_HOST = "relay_host"
 CONF_DEVICES = "devices"
@@ -17,9 +18,6 @@ CONF_RTSG_PW = "password"
 # 接入模式
 MODE_LOCAL = "local"
 MODE_RELAY = "relay"
-
-# 默认国家/地区
-DEFAULT_COUNTRY = "cn"
 
 # 默认 RTSP 参数
 DEFAULT_RTSP_PORT = 554
