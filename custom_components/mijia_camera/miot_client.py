@@ -193,45 +193,51 @@ def load_all_devices(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
 
 def discover_cameras(hass: HomeAssistant) -> list[CameraInfo]:
     """筛选官方集成设备中的摄像头（以 did 去重）。"""
-    runtime = _collect_from_runtime(hass)
-    files = _collect_from_files(hass)
-    devices = load_all_devices(hass)
+    try:
+        runtime = _collect_from_runtime(hass)
+        files = _collect_from_files(hass)
+        devices = load_all_devices(hass)
 
-    _LOGGER.warning(
-        "mijia_camera: 设备发现 -> 运行时来源 %d 台，文件来源 %d 台，"
-        "合并后 %d 台；models=%s",
-        len(runtime),
-        len(files),
-        len(devices),
-        sorted((str(d.get("model", "")) for d in devices.values())),
-    )
-
-    cameras: list[CameraInfo] = []
-    seen: set[str] = set()
-    for did, dev in devices.items():
-        if did in seen:
-            continue
-        model = (dev.get("model") or "").lower()
-        if "camera" not in model:
-            continue
-        seen.add(did)
-        cameras.append(
-            CameraInfo(
-                did=str(did),
-                name=dev.get("name") or str(did),
-                model=dev.get("model") or "",
-                local_ip=dev.get("local_ip") or "",
-                token=dev.get("token") or "",
-                online=bool(dev.get("online", False)),
-            )
+        _LOGGER.warning(
+            "mijia_camera: 设备发现 -> 运行时来源 %d 台，文件来源 %d 台，"
+            "合并后 %d 台；models=%s",
+            len(runtime),
+            len(files),
+            len(devices),
+            sorted((str(d.get("model", "")) for d in devices.values())),
         )
 
-    _LOGGER.warning(
-        "mijia_camera: 识别到摄像头 %d 台：%s",
-        len(cameras),
-        [f"{c.name}({c.model})" for c in cameras],
-    )
-    return cameras
+        cameras: list[CameraInfo] = []
+        seen: set[str] = set()
+        for did, dev in devices.items():
+            if did in seen:
+                continue
+            model = (dev.get("model") or "").lower()
+            if "camera" not in model:
+                continue
+            seen.add(did)
+            cameras.append(
+                CameraInfo(
+                    did=str(did),
+                    name=dev.get("name") or str(did),
+                    model=dev.get("model") or "",
+                    local_ip=dev.get("local_ip") or "",
+                    token=dev.get("token") or "",
+                    online=bool(dev.get("online", False)),
+                )
+            )
+
+        _LOGGER.warning(
+            "mijia_camera: 识别到摄像头 %d 台：%s",
+            len(cameras),
+            [f"{c.name}({c.model})" for c in cameras],
+        )
+        return cameras
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning(
+            "mijia_camera: discover_cameras 执行异常（已兜底返回空列表）：%s", err
+        )
+        return []
 
 
 def build_go2rtc_relay_config(
