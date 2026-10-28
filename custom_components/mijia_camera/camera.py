@@ -45,7 +45,7 @@ async def async_setup_entry(
 
     entities = []
     for did in selected:
-        info = coordinator.data.get(did)
+        info = (coordinator.data or {}).get(did)
         if info is None:
             _LOGGER.warning("配置中的摄像头 %s 当前未在线或不存在，仍创建实体", did)
             # 用配置中保存的最小信息兜底，避免实体丢失
@@ -112,10 +112,17 @@ class MijiaCamera(Camera):
 
     @property
     def available(self) -> bool:
-        info = self.coordinator.data.get(self._did)
-        if info is None:
-            return False
-        return bool(info.get("online", False))
+        # 云端中继模式：本意就是绕开官方「同子网 / 在线」限制，可用性只取决于
+        # 中继地址是否已配置（实体能被创建就说明已配置），能否真正出流交给
+        # go2rtc / RTSP 连接本身决定。绝对不能再用官方的 online 标志，否则跨子网
+        # 设备会被官方误判为离线，连带把我们的实体置为「不可用」，用户无从排查。
+        if self._mode == MODE_RELAY:
+            return True
+        # 本地模式：以「能否拿到本地 IP」作为可用性依据。官方的 online 标志受
+        # 同子网限制不可靠（跨子网设备会被判离线），不应据此判定实体不可用。
+        data = self.coordinator.data or {}
+        info = data.get(self._did, self._info)
+        return bool(info.get("local_ip") or "")
 
     @property
     def stream_source(self) -> str | None:
@@ -123,7 +130,7 @@ class MijiaCamera(Camera):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        info = self.coordinator.data.get(self._did, {})
+        info = (self.coordinator.data or {}).get(self._did, {})
         return {
             "did": self._did,
             "model": info.get("model", ""),
