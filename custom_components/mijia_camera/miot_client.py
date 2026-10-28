@@ -14,8 +14,6 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .const import XIAOMI_HOME_STORAGE_DIR
-
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -49,28 +47,34 @@ class CameraInfo:
         }
 
 
-def storage_dir(hass: HomeAssistant) -> str:
-    """返回官方 Xiaomi Home 集成的 storage 目录。"""
-    return hass.config.path(XIAOMI_HOME_STORAGE_DIR)
-
-
 def _iter_device_files(hass: HomeAssistant):
-    """遍历官方集成 storage 目录下所有设备 JSON 文件。"""
-    base = storage_dir(hass)
-    if not os.path.isdir(base):
-        _LOGGER.debug("xiaomi_home storage 目录不存在：%s", base)
+    """遍历官方集成 storage 下的 miot_devices 设备 JSON 文件。
+
+    官方 Xiaomi Home 集成将设备清单以 ``{did: {...}}`` 结构写入
+    ``.storage/<集成目录>/miot_devices/<uid>_<server>.json``。``miot_devices``
+    是**目录名**，文件名本身不含该字样，因此不能靠文件名过滤。这里直接查找
+    所有名为 ``miot_devices`` 的目录，不依赖具体的集成子目录名。
+    """
+    storage_root = hass.config.path(".storage")
+    dirs = glob.glob(
+        os.path.join(storage_root, "**", "miot_devices"), recursive=True
+    )
+    if not dirs:
+        _LOGGER.debug(
+            "未在任何 .storage 子目录下找到 miot_devices 目录，"
+            "请确认已安装并登录官方 Xiaomi Home 集成且设备已同步"
+        )
         return
-    for path in glob.glob(os.path.join(base, "**", "*.json"), recursive=True):
-        if "miot_devices" not in os.path.basename(path):
-            continue
-        try:
-            with open(path, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("读取设备文件失败 %s: %s", path, err)
-            continue
-        if isinstance(data, dict):
-            yield data
+    for d in dirs:
+        for path in glob.glob(os.path.join(d, "*.json")):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("读取设备文件失败 %s: %s", path, err)
+                continue
+            if isinstance(data, dict):
+                yield data
 
 
 def load_all_devices(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
@@ -85,9 +89,15 @@ def load_all_devices(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
 
 def discover_cameras(hass: HomeAssistant) -> list[CameraInfo]:
     """筛选官方集成设备中的摄像头（以 did 去重）。"""
+    devices = load_all_devices(hass)
+    _LOGGER.debug(
+        "mijia_camera: 从官方集成读取到设备 %d 台，models=%s",
+        len(devices),
+        sorted((str(d.get("model", "")) for d in devices.values())),
+    )
     cameras: list[CameraInfo] = []
     seen: set[str] = set()
-    for did, dev in load_all_devices(hass).items():
+    for did, dev in devices.items():
         if did in seen:
             continue
         model = (dev.get("model") or "").lower()
