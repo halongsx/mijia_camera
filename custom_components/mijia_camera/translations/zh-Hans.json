@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "登录米家账号",
+        "data": {
+          "username": "米家账号（手机号/邮箱）",
+          "password": "密码",
+          "country": "地区",
+          "mode": "取流方式",
+          "relay_host": "中继地址（go2rtc/mediaMTX），如 192.168.1.10:8554"
+        }
+      },
+      "select": {
+        "title": "选择摄像头",
+        "data": {
+          "devices": "要添加的摄像头"
+        }
+      },
+      "credentials": {
+        "title": "本地 RTSP 凭据",
+        "description": "在米家 APP 中进入对应摄像头 → 设置 → 打开“局域网查看”，页面会显示 RTSP 用户名与密码（验证码），请按摄像头逐一填写。字段名格式为 u_<设备ID> / p_<设备ID>。",
+        "data": {}
+      }
+    },
+    "error": {
+      "invalid_auth": "登录失败，请检查账号/密码或小米风控。",
+      "no_cameras": "该账号下未发现摄像头。"
+    },
+    "abort": {
+      "already_configured": "该账号已配置。"
+    }
+  },
+  "entity": {
+    "camera": {
+      "name": "米家摄像头"
+    }
+  }
+}
