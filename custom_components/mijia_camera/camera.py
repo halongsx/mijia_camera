@@ -36,28 +36,34 @@ async def async_setup_entry(
 ) -> None:
     coordinator: MijiaCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     data = entry.data
-    mode = data[CONF_MODE]
+    mode = data.get(CONF_MODE, MODE_RELAY)
     relay_host = data.get(CONF_RELAY_HOST, "")
     creds = data.get(CONF_CAMERA_CREDS, {})
-    selected = data[CONF_DEVICES]
+    selected = data.get(CONF_DEVICES, [])
 
-    await coordinator.async_request_refresh()
+    # 首次刷新：即便失败也不要中断实体创建。实体会用兜底信息建立，
+    # 等 coordinator 后续刷新拿到真实数据后自动补全（见下面的动态属性）。
+    try:
+        await coordinator.async_request_refresh()
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("mijia_camera: 首次刷新失败，将用兜底信息创建实体：%s", err)
+
+    if not selected:
+        _LOGGER.warning(
+            "mijia_camera: 配置中未选择任何摄像头（devices 为空），未创建实体"
+        )
 
     entities = []
     for did in selected:
-        info = (coordinator.data or {}).get(did)
-        if info is None:
-            _LOGGER.warning("配置中的摄像头 %s 当前未在线或不存在，仍创建实体", did)
-            # 用配置中保存的最小信息兜底，避免实体丢失
-            info = {"did": did, "name": did, "model": "", "local_ip": "", "online": False}
-        if mode == MODE_RELAY:
-            source = _build_relay_source(relay_host, did)
-        else:
-            cam_creds = creds.get(did, {})
-            user = cam_creds.get(CONF_RTSG_USER, DEFAULT_RTSP_USER)
-            pw = cam_creds.get(CONF_RTSG_PW, "")
-            source = _build_local_source(info, user, pw)
-        entities.append(MijiaCamera(coordinator, info, source, mode))
+        info = (coordinator.data or {}).get(did) or {
+            "did": did,
+            "name": did,
+            "model": "",
+            "local_ip": "",
+            "token": "",
+            "online": False,
+        }
+        entities.append(MijiaCamera(coordinator, did, info, mode, relay_host, creds))
     async_add_entities(entities)
 
 
@@ -96,26 +102,29 @@ class MijiaCamera(Camera):
     def __init__(
         self,
         coordinator: MijiaCoordinator,
+        did: str,
         info: dict[str, Any],
-        source: str,
         mode: str,
+        relay_host: str,
+        creds: dict[str, Any],
     ) -> None:
         super().__init__()
         self.coordinator = coordinator
-        self._did = info["did"]
-        self._info = info
-        self._source = source
+        self._did = did
+        self._info = info  # 首次刷新为空时的兜底信息
         self._mode = mode
-        self._attr_unique_id = f"mijia_camera_{self._did}"
-        self._attr_name = info.get("name", self._did)
+        self._relay_host = relay_host
+        self._creds = creds or {}
+        self._attr_unique_id = f"mijia_camera_{did}"
+        self._attr_name = info.get("name", did)
         self._attr_supported_features = CameraEntityFeature.STREAM
 
     @property
     def available(self) -> bool:
-        # 云端中继模式：本意就是绕开官方「同子网 / 在线」限制，可用性只取决于
-        # 中继地址是否已配置（实体能被创建就说明已配置），能否真正出流交给
-        # go2rtc / RTSP 连接本身决定。绝对不能再用官方的 online 标志，否则跨子网
-        # 设备会被官方误判为离线，连带把我们的实体置为「不可用」，用户无从排查。
+        # 云端中继模式：本意是绕开官方「同子网 / 在线」限制，可用性只取决于中继
+        # 地址是否已配置（实体能被创建就说明已配置），能否真正出流交给 go2rtc /
+        # RTSP 连接本身决定。绝对不能再用官方的 online 标志，否则跨子网设备会被
+        # 误判为离线，连带把我们的实体置为「不可用」，用户无从排查。
         if self._mode == MODE_RELAY:
             return True
         # 本地模式：以「能否拿到本地 IP」作为可用性依据。官方的 online 标志受
@@ -126,11 +135,23 @@ class MijiaCamera(Camera):
 
     @property
     def stream_source(self) -> str | None:
-        return self._source
+        # 动态计算：coordinator 刷新拿到真实 local_ip / token 后，流地址自动纠正，
+        # 避免首次刷新为空时一次性写死的地址永远无效（尤其本地 RTSP 模式）。
+        data = self.coordinator.data or {}
+        info = data.get(self._did, self._info)
+        if self._mode == MODE_RELAY:
+            return _build_relay_source(self._relay_host, self._did)
+        local_ip = info.get("local_ip") or ""
+        if not local_ip:
+            return None
+        cam_creds = self._creds.get(self._did, {})
+        user = cam_creds.get(CONF_RTSG_USER, DEFAULT_RTSP_USER)
+        pw = cam_creds.get(CONF_RTSG_PW, "")
+        return _build_local_source(info, user, pw)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        info = (self.coordinator.data or {}).get(self._did, {})
+        info = (self.coordinator.data or {}).get(self._did, self._info)
         return {
             "did": self._did,
             "model": info.get("model", ""),
@@ -143,7 +164,8 @@ class MijiaCamera(Camera):
     ) -> bytes | None:
         """通过系统 ffmpeg 抓取单帧快照（可选能力）。"""
         ffmpeg_bin = shutil.which("ffmpeg")
-        if ffmpeg_bin is None or not self._source:
+        source = self.stream_source
+        if ffmpeg_bin is None or not source:
             return None
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -151,7 +173,7 @@ class MijiaCamera(Camera):
                 "-rtsp_transport",
                 "tcp",
                 "-i",
-                self._source,
+                source,
                 "-frames:v",
                 "1",
                 "-f",
