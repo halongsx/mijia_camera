@@ -5,7 +5,6 @@ DOMAIN = "mijia_camera"
 
 # 官方 Xiaomi Home 集成（提供登录态与设备列表）
 XIAOMI_HOME_DOMAIN = "xiaomi_home"
-XIAOMI_HOME_STORAGE_DIR = ".storage/xiaomi_home"
 
 # 配置键
 CONF_MODE = "mode"
