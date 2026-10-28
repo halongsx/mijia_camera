@@ -6,9 +6,8 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_COUNTRY, CONF_PASSWORD, CONF_USERNAME, DOMAIN
+from .const import DOMAIN
 from .coordinator import MijiaCoordinator
-from .miot_client import MijiaClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,12 +16,7 @@ PLATFORMS = ["camera"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """从配置项建立集成。"""
-    username = entry.data[CONF_USERNAME]
-    password = entry.data[CONF_PASSWORD]
-    country = entry.data[CONF_COUNTRY]
-    client = MijiaClient(username, password, country)
-    coordinator = MijiaCoordinator(hass, client)
-
+    coordinator = MijiaCoordinator(hass)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"coordinator": coordinator}
 
     await coordinator.async_config_entry_first_refresh()
