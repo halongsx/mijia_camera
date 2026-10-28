@@ -105,3 +105,26 @@ def discover_cameras(hass: HomeAssistant) -> list[CameraInfo]:
             )
         )
     return cameras
+
+
+def build_go2rtc_relay_config(
+    cameras: list[CameraInfo],
+    user_id: str = "你的小米UID",
+    region: str = "cn",
+    ip_hint: str = "摄像机IP",
+) -> str:
+    """生成 go2rtc 云端中继流的 YAML 片段（供用户在 go2rtc 配置中粘贴）。
+
+    注意：小米云中继需要的是老式 xiaomiio ``service_token``，与官方 Xiaomi Home
+    集成的 OAuth2 token 不同，无法自动复用。请在 go2rtc 的 Web UI 用小米账号
+    登录一次（支持账号密码 + 验证码），go2rtc 会自动拿到令牌；随后按下方片段
+    逐台建立流，流名必须恰好等于摄像机 DID（本集成读取 rtsp://<relay>/<DID>）。
+    """
+    lines = ["streams:"]
+    for cam in cameras:
+        lines.append(f'  "{cam.did}":')
+        lines.append(
+            f"    - xiaomi://{user_id}:{region}@{ip_hint}"
+            f"?did={cam.did}&model={cam.model}"
+        )
+    return "\n".join(lines)
