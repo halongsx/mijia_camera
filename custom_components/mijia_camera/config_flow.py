@@ -1,4 +1,4 @@
-"""配置流：登录米家账号并选择要接入的摄像头。"""
+"""配置流：从官方 Xiaomi Home 集成读取摄像头并选择要接入的设备。"""
 from __future__ import annotations
 
 import logging
@@ -9,22 +9,19 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
 from .const import (
-    CONF_PASSWORD,
-    CONF_USERNAME,
-    CONF_COUNTRY,
     CONF_MODE,
     CONF_RELAY_HOST,
     CONF_DEVICES,
     CONF_CAMERA_CREDS,
     CONF_RTSG_USER,
     CONF_RTSG_PW,
-    DEFAULT_COUNTRY,
     DEFAULT_RTSP_USER,
     MODE_LOCAL,
     MODE_RELAY,
+    XIAOMI_HOME_DOMAIN,
     DOMAIN,
 )
-from .miot_client import MijiaClient
+from .miot_client import discover_cameras
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,9 +32,6 @@ class MijiaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-        self._username: str = ""
-        self._password: str = ""
-        self._country: str = DEFAULT_COUNTRY
         self._mode: str = MODE_LOCAL
         self._relay_host: str = ""
         self._cameras: list = []
@@ -48,36 +42,29 @@ class MijiaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
+
         if user_input is not None:
-            self._username = user_input[CONF_USERNAME]
-            self._password = user_input[CONF_PASSWORD]
-            self._country = user_input.get(CONF_COUNTRY, DEFAULT_COUNTRY)
+            await self.async_set_unique_id(DOMAIN)
+            self._abort_if_unique_id_configured()
+
             self._mode = user_input[CONF_MODE]
             self._relay_host = user_input.get(CONF_RELAY_HOST, "")
 
-            # 同一账号只允许配置一次
-            await self.async_set_unique_id(self._username)
-            self._abort_if_unique_id_configured()
-
-            client = MijiaClient(self._username, self._password, self._country)
-            ok = await self.hass.async_add_executor_job(client.login)
-            if not ok:
-                errors["base"] = "invalid_auth"
-            else:
-                cameras = await self.hass.async_add_executor_job(client.get_cameras)
-                self._cameras = cameras
-                if not cameras:
-                    errors["base"] = "no_cameras"
+            cameras = await self.hass.async_add_executor_job(
+                discover_cameras, self.hass
+            )
+            self._cameras = cameras
+            if not cameras:
+                # 区分“未安装 / 未登录官方集成”与“无摄像头”
+                if not self.hass.config_entries.async_entries(XIAOMI_HOME_DOMAIN):
+                    errors["base"] = "no_xiaomi_home"
                 else:
-                    return await self.async_step_select()
+                    errors["base"] = "no_cameras"
+            else:
+                return await self.async_step_select()
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_USERNAME): str,
-                vol.Required(CONF_PASSWORD): str,
-                vol.Optional(
-                    CONF_COUNTRY, default=DEFAULT_COUNTRY
-                ): vol.In({"cn": "中国", "sg": "新加坡/全球", "de": "欧洲"}),
                 vol.Required(CONF_MODE, default=MODE_LOCAL): vol.In(
                     {
                         MODE_LOCAL: "本地RTSP（需开启局域网查看）",
@@ -87,7 +74,18 @@ class MijiaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_RELAY_HOST, default=""): str,
             }
         )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "note": (
+                    "本集成复用官方「Xiaomi Home 米家集成」的登录态与设备列表，"
+                    "无需输入米家账号密码。请先安装并登录官方 Xiaomi Home 集成，"
+                    "并确保摄像头已同步到该集成。"
+                )
+            },
+        )
 
     async def async_step_select(
         self, user_input: dict[str, Any] | None = None
@@ -146,13 +144,10 @@ class MijiaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def _create_entry(self) -> ConfigFlowResult:
         data: dict[str, Any] = {
-            CONF_USERNAME: self._username,
-            CONF_PASSWORD: self._password,
-            CONF_COUNTRY: self._country,
             CONF_MODE: self._mode,
             CONF_RELAY_HOST: self._relay_host,
             CONF_DEVICES: self._selected,
         }
         if self._mode == MODE_LOCAL:
             data[CONF_CAMERA_CREDS] = self._creds
-        return self.async_create_entry(title=self._username, data=data)
+        return self.async_create_entry(title="米家摄像头", data=data)
