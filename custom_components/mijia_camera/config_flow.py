@@ -71,7 +71,15 @@ class MijiaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                         MODE_RELAY: "云端中继（go2rtc/mediaMTX）",
                     }
                 ),
-                vol.Optional(CONF_RELAY_HOST, default=""): str,
+                vol.Optional(
+                    CONF_RELAY_HOST,
+                    default="",
+                    description=(
+                        "HAOS 加载项版 go2rtc 请填 172.30.32.1:8554；"
+                        "与 HA 同机 Docker（host 网络）填 127.0.0.1:8554。"
+                        "仅「云端中继」模式需要，本地 RTSP 可留空。"
+                    ),
+                ): str,
             }
         )
         return self.async_show_form(
