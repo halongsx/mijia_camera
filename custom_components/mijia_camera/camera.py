@@ -49,7 +49,7 @@ async def async_setup_entry(
         if info is None:
             _LOGGER.warning("配置中的摄像头 %s 当前未在线或不存在，仍创建实体", did)
             # 用配置中保存的最小信息兜底，避免实体丢失
-            info = {"did": did, "name": did, "model": "", "localip": "", "online": False}
+            info = {"did": did, "name": did, "model": "", "local_ip": "", "online": False}
         if mode == MODE_RELAY:
             source = _build_relay_source(relay_host, did)
         else:
@@ -66,7 +66,7 @@ def _build_local_source(info: dict[str, Any], user: str, pw: str) -> str:
 
     不同型号路径不同，这里做基础匹配；未知型号回退到默认路径。
     """
-    ip = info.get("localip") or ""
+    ip = info.get("local_ip") or ""
     model = (info.get("model") or "").lower()
     if "aqara" in model:
         path = "live/ch00_0"  # Aqara G2H/G3 主码流
@@ -127,7 +127,7 @@ class MijiaCamera(Camera):
         return {
             "did": self._did,
             "model": info.get("model", ""),
-            "local_ip": info.get("localip", ""),
+            "local_ip": info.get("local_ip", ""),
             "mode": self._mode,
         }
 
