@@ -75,8 +75,13 @@ class MijiaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_RELAY_HOST,
                     default="",
                     description=(
-                        "HAOS 加载项版 go2rtc 请填 172.30.32.1:8554；"
-                        "与 HA 同机 Docker（host 网络）填 127.0.0.1:8554。"
+                        "填写「运行 go2rtc 的那台机器的地址:8554」（注意：是 go2rtc "
+                        "所在机器，不是 HA 所在机器，除非二者同机）。\n"
+                        "• HAOS 加载项版 go2rtc：172.30.32.1:8554\n"
+                        "• 与 HA 同机 Docker（host 网络）：127.0.0.1:8554\n"
+                        "• mi-relay 跑在另一台 Windows 电脑：填那台电脑的局域网 IP，"
+                        "例如 192.168.1.50:8554（绝不能填 127.0.0.1，否则 HA 会去连"
+                        "自己本机而连不到 go2rtc）。\n"
                         "仅「云端中继」模式需要，本地 RTSP 可留空。"
                     ),
                 ): str,
