@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
@@ -25,6 +25,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import MijiaCoordinator
+from .webrtc import Go2rtcSignaling, WEBRTC_SUPPORTED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -115,6 +116,12 @@ class MijiaCamera(Camera):
         self._mode = mode
         self._relay_host = relay_host
         self._creds = creds or {}
+        # 云端中继模式：建立 WebRTC 信令代理（go2rtc 一侧）。本地模式不走 WebRTC，留空。
+        self._signaling = (
+            Go2rtcSignaling(coordinator.hass, relay_host)
+            if (mode == MODE_RELAY and WEBRTC_SUPPORTED)
+            else None
+        )
         self._attr_unique_id = f"mijia_camera_{did}"
         self._attr_name = info.get("name", did)
         self._attr_supported_features = CameraEntityFeature.STREAM
@@ -182,3 +189,44 @@ class MijiaCamera(Camera):
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("快照抓取失败（%s）：%s", self._did, err)
             return None
+
+    # ------------------------------------------------------------------
+    # 原生 WebRTC（仅当 HA 2024.12+ 提供 CameraWebRTCProvider API 时定义）。
+    # 实体一旦原生实现 async_handle_async_webrtc_offer，HA 会把
+    # _supports_native_async_webrtc 置为 True，前端实况只走 WebRTC（不再退 HLS），
+    # 从而解决 go2rtc 中继源在 HLS 下只出首帧就卡住的问题。
+    # ------------------------------------------------------------------
+    if WEBRTC_SUPPORTED:
+
+        async def async_handle_async_webrtc_offer(
+            self,
+            offer_sdp: str,
+            session_id: str,
+            send_message: "WebRTCSendMessage",
+        ) -> None:
+            """把 WebRTC offer 代理给 go2rtc 的中继信令。"""
+            if self._signaling is None:
+                _LOGGER.warning(
+                    "mijia_camera: 收到 WebRTC offer 但中继信令未初始化（非中继模式？）"
+                )
+                return
+            await self._signaling.handle_offer(
+                self._did, offer_sdp, session_id, send_message
+            )
+
+        async def async_on_webrtc_candidate(
+            self,
+            session_id: str,
+            candidate: Any,
+        ) -> None:
+            """把前端 ICE candidate 转发给 go2rtc。"""
+            if self._signaling is None:
+                return
+            cand_str = getattr(candidate, "candidate", None) or ""
+            await self._signaling.on_candidate(session_id, cand_str)
+
+        @callback
+        def close_webrtc_session(self, session_id: str) -> None:
+            """关闭 WebRTC 会话。"""
+            if self._signaling is not None:
+                self._signaling.close(session_id)
