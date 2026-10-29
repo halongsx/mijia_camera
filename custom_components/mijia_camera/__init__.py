@@ -6,9 +6,8 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, CONF_MODE, CONF_RELAY_HOST, MODE_RELAY
+from .const import DOMAIN
 from .coordinator import MijiaCoordinator
-from .webrtc_provider import register_provider
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,15 +27,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     hass.async_create_task(coordinator.async_request_refresh())
 
-    # 云端中继模式：注册 WebRTC 提供器，把实况从 HLS 改为 WebRTC，
-    # 解决 go2rtc 中继源在 HLS 下只出首帧就卡住的问题。
-    if entry.data.get(CONF_MODE, MODE_RELAY) == MODE_RELAY:
-        remove = await register_provider(
-            hass, entry.data.get(CONF_RELAY_HOST, "")
-        )
-        if remove is not None:
-            hass.data[DOMAIN][entry.entry_id]["webrtc_remove"] = remove
-
+    # 云端中继模式的 WebRTC 由 camera 实体原生实现（async_handle_async_webrtc_offer），
+    # 不再依赖独立的 CameraWebRTCProvider 注册（注册时序不可靠，常导致 WebRTC 不接管、
+    # 前端退回 HLS 而卡在一帧）。详见 camera.py / webrtc.py。
     return True
 
 
@@ -44,11 +37,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """卸载集成。"""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        entry_data = hass.data[DOMAIN].pop(entry.entry_id, None) or {}
-        remove = entry_data.get("webrtc_remove")
-        if remove is not None:
-            try:
-                remove()
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("mijia_camera: WebRTC 提供器注销异常（忽略）")
+        hass.data[DOMAIN].pop(entry.entry_id, None)
     return unloaded
