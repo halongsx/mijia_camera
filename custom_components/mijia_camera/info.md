@@ -24,3 +24,19 @@ v1.3.8 起，信令链路任何失败都会在前端**直接弹出错误原因**
 
 排查时打开 HA 的「设置 → 系统 → 日志」，过滤 `mijia_camera`，关注 `WebRTC 信令连接 go2rtc: ws://...` 这一行，确认实际连接的地址是否正确。
 
+## 通过 HomeKit 观看（走 HLS，不是 WebRTC）
+
+HomeKit 摄像头实时画面**不走 WebRTC**，而是靠 HA 的 `stream` 组件把 `stream_source()` 返回的 RTSP 转码成 **HLS** 播放。因此前面针对 HA 前端 WebRTC 的修复（v1.3.7/v1.3.8）**对 HomeKit 观看路径无效**——这是两条不同的链路。
+
+本集成的摄像头实体已声明 `CameraEntityFeature.STREAM`，`stream_source()` 也已返回云端中继 RTSP，代码侧无需改动。HomeKit 出现「一帧一帧 / 一张一张地刷新 / 不能实时」几乎都是 **HLS 实时流没建立成功，HomeKit 退回了「周期性快照」模式**，根因在环境配置：
+
+1. **`relay_host` 必须填 go2rtc(mi-relay) 所在机器的局域网 IP:8554，绝不能填 `127.0.0.1` 或 `172.30.32.1`**（除非 go2rtc 与 HA 确实同机）。因为 `stream` 组件是在 **HA 那一侧** 去连 `rtsp://<relay_host>/<DID>` 拉流的——填 `127.0.0.1` 会让 HA 去连自己本机而连不到 go2rtc。
+   - 例：mi-relay 跑在某台 Windows 电脑（IP `192.168.1.50`），则填 `192.168.1.50:8554`。
+2. **Windows 防火墙必须放行 mi-relay 的入站端口**：HA 在另一台机器时，防火墙会挡掉连接。需放行 **TCP 8554（RTSP 拉流，HomeKit 实时流靠它）**、**TCP 1984（WebUI/信令）**、**UDP 8555（WebRTC 媒体）**。可在「Windows 安全中心 → 防火墙 → 允许应用」把 `mi-relay.exe` 勾上，或新建入站规则放行端口。
+3. **HA 必须启用 `stream` 集成**：`configuration.yaml` 有 `default_config:`（通常已含）或显式 `stream:`。没有它，HomeKit 永远只能快照。
+4. **确认 go2rtc↔米家本身出流正常**：在跑 mi-relay 的 Windows 本机用 VLC 打开 `rtsp://127.0.0.1:8554/<摄像头DID>`，能流畅播放说明上游没问题，问题只在前述地址/防火墙/stream。
+
+改完 `relay_host` 与防火墙后**重启 Home Assistant**；iPhone 家庭 App 无需重新配对，实时流会自动走通，若仍卡可对该摄像头实体「重新加载」一次。
+
+> 注：若地址与防火墙都正确、HomeKit 仍卡顿（而非完全不动），多为米家原始流**关键帧(GOP)间隔过长**导致 HLS 切片不连续。此时需在 mi-relay 的 go2rtc 中把该路流转码、强制短 GOP（联系维护者加 ffmpeg 重编码配置）。
+

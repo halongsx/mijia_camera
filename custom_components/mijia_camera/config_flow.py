@@ -82,7 +82,11 @@ class MijiaCameraConfigFlow(ConfigFlow, domain=DOMAIN):
                         "• mi-relay 跑在另一台 Windows 电脑：填那台电脑的局域网 IP，"
                         "例如 192.168.1.50:8554（绝不能填 127.0.0.1，否则 HA 会去连"
                         "自己本机而连不到 go2rtc）。\n"
+                        "• 跨机时还需在 Windows 防火墙放行 mi-relay 入站："
+                        "TCP 8554（RTSP）、TCP 1984、UDP 8555。\n"
                         "仅「云端中继」模式需要，本地 RTSP 可留空。"
+                        "（通过 HomeKit 观看时，本地址同样决定 stream 组件能否拉到流，"
+                        "填错会导致 HomeKit 退回快照「一帧一帧」。）"
                     ),
                 ): str,
             }
