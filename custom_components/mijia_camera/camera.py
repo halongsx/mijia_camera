@@ -25,6 +25,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import MijiaCoordinator
+from .go2rtc_api import ensure_camera_streams
 from .webrtc import Go2rtcSignaling, WEBRTC_SUPPORTED
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +67,16 @@ async def async_setup_entry(
         }
         entities.append(MijiaCamera(coordinator, did, info, mode, relay_host, creds))
     async_add_entities(entities)
+
+    # 云端中继模式：自动把小米账号下的摄像头注册成 go2rtc 流（零配置建流）。
+    # 前提是用户已在 go2rtc WebUI 用小米账号登录过一次。
+    # 这里在后台 fire-and-forget 触发一次全账号注册，覆盖 WebRTC 与 HomeKit/HLS
+    # 两条取流路径；注册结果有模块级缓存，重复调用不会重复建流。
+    if mode == MODE_RELAY and relay_host:
+        hass.async_create_task(
+            ensure_camera_streams(hass, relay_host),
+            name="mijia_camera_auto_register_streams",
+        )
 
 
 def _build_local_source(info: dict[str, Any], user: str, pw: str) -> str:
@@ -205,6 +216,15 @@ class MijiaCamera(Camera):
             send_message: "WebRTCSendMessage",
         ) -> None:
             """把 WebRTC offer 代理给 go2rtc 的中继信令。"""
+            # 取流前确保 go2rtc 已存在该 DID 的流（尚未建则自动注册）。
+            # HA 启动时若 go2rtc 还没就绪，setup 阶段的全量注册会失败，
+            # 这里在第一次真正取流时再补一次，缓存保证不会重复建流。
+            if self._mode == MODE_RELAY and self._relay_host:
+                await ensure_camera_streams(
+                    hass=self.coordinator.hass,
+                    relay_host=self._relay_host,
+                    did=self._did,
+                )
             if self._signaling is None:
                 _LOGGER.warning(
                     "mijia_camera: 收到 WebRTC offer 但中继信令未初始化（非中继模式？）"
