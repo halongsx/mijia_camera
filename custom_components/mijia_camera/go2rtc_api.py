@@ -5,8 +5,8 @@
 `xiaomi://...` 源 URL），再调用 `/api/streams` 把每台摄像头注册为名为 DID 的流。
 这样用户完全不需要向 `go2rtc.yaml` / 加载项配置里手写 `streams:` 段。
 
-工作原理（基于 go2rtc 源码）：
-  - GET  /api/xiaomi            -> 已登录的小米 userID 列表
+工作原理（基于 go2rtc 源码 internal/xiaomi/xiaomi.go）：
+  - GET  /api/xiaomi            -> 已登录的小米 userID 列表（tokens 配置的键）
   - GET  /api/xiaomi?id=<uid>   -> 该账号摄像头列表，每项含 ready-to-use 的
                                    `xiaomi://uid:region@ip?did=..&model=..` URL
   - POST /api/streams?src=<url>&name=<did>  -> 走 GetOrPatch 按 DID 创建流
@@ -50,18 +50,36 @@ async def ensure_camera_streams(
 ) -> bool:
     """确保 go2rtc 中存在名为 DID 的摄像头流（不存在则自动注册）。
 
-    查询 go2rtc 已登录的小米账号，拉取摄像头列表并把匹配（或全部）摄像头
-    注册为 go2rtc 流（流名 = DID）。
-
-    返回 True  表示 go2rtc 可达且至少已登录一个小米账号；
-    返回 False 表示不可达或未登录——此时无法自动建流，调用方应提示用户
+    返回 True  表示流程正常执行（go2rtc 可达且至少已登录一个小米账号）；
+    返回 False 表示不可达 / 未登录 / 注册失败——调用方应提示用户
     先去 go2rtc WebUI 用小米账号登录。
     """
+    try:
+        return await _ensure_camera_streams_inner(hass, relay_host, did)
+    except Exception:  # noqa: BLE001
+        # 兜底：任何意外异常都记录下来并返回 False，避免任务异常未被回收
+        # 导致 HA 日志出现「Task exception was never retrieved」。
+        _LOGGER.exception(
+            "mijia_camera: 自动建流任务发生未预期异常（已捕获，不影响 HA 运行）"
+        )
+        return False
+
+
+async def _ensure_camera_streams_inner(
+    hass: HomeAssistant, relay_host: str, did: str | None = None
+) -> bool:
     if did and did in _REGISTERED:
         return True
 
+    if not relay_host:
+        _LOGGER.warning(
+            "mijia_camera: relay_host 为空，无法自动建流（HAOS 加载项请填 172.30.32.1:8554）"
+        )
+        return False
+
     base = _api_base(relay_host)
-    session = hass.helpers.aiohttp_client.async_get_clientsession()
+    # ⚠️ 关键：async_get_clientsession 必须传入 hass，否则会抛 TypeError。
+    session = hass.helpers.aiohttp_client.async_get_clientsession(hass)
 
     # 1) 拿到已登录的小米账号 userID 列表
     try:
@@ -75,15 +93,15 @@ async def ensure_camera_streams(
                     resp.status,
                 )
                 return False
-            user_ids = await resp.json()
+            user_ids = await resp.json(content_type=None)
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("mijia_camera: 连接 go2rtc API %s 失败：%s", base, err)
         return False
 
-    if not user_ids:
+    if not isinstance(user_ids, list) or not user_ids:
         if not did or did not in _REGISTER_FAILED:
             _LOGGER.warning(
-                "mijia_camera: go2rtc 未登录小米账号，无法自动建流。"
+                "mijia_camera: go2rtc 未登录小米账号或返回异常，无法自动建流。"
                 "请先在 go2rtc WebUI（http://<你的HAOS局域网IP>:1984）用小米账号登录一次，"
                 "然后重启 Home Assistant（或重新加载本集成）。"
             )
@@ -106,16 +124,26 @@ async def ensure_camera_streams(
                         resp.status,
                     )
                     continue
-                devices = await resp.json()
+                devices = await resp.json(content_type=None)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning(
                 "mijia_camera: 获取账号 %s 的摄像头列表异常：%s", user_id, err
             )
             continue
 
+        if not isinstance(devices, list):
+            _LOGGER.warning(
+                "mijia_camera: 账号 %s 的设备列表格式异常（非列表）：%s",
+                user_id,
+                type(devices).__name__,
+            )
+            continue
+
         for dev in devices:
+            if not isinstance(dev, dict):
+                continue
             source_url = dev.get("url")
-            if not source_url:
+            if not source_url or not isinstance(source_url, str):
                 continue
             dev_did = _extract_did(source_url)
             if not dev_did:
@@ -163,7 +191,8 @@ async def _register_one(
             if resp.status in (200, 201):
                 return True
             _LOGGER.warning(
-                "mijia_camera: 注册流 %s 失败（PUT 与 POST 均非 2xx，POST=HTTP %s）",
+                "mijia_camera: 注册流 %s 失败（POST 返回 HTTP %s）；"
+                "若 go2rtc 配置了 api 认证，请在其配置中加入对 1984 端口的访问授权",
                 name,
                 resp.status,
             )
