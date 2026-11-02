@@ -131,9 +131,14 @@ async def _ensure_camera_streams_inner(
             )
             continue
 
+        # go2rtc 把设备列表包在 {"sources": [...]} 中返回
+        # （见 internal/api/api.go 的 ResponseSources），必须先解包，
+        # 否则会被当成「格式异常」整体跳过，导致一台流都注册不出来。
+        if isinstance(devices, dict):
+            devices = devices.get("sources") or []
         if not isinstance(devices, list):
             _LOGGER.warning(
-                "mijia_camera: 账号 %s 的设备列表格式异常（非列表）：%s",
+                "mijia_camera: 账号 %s 的设备列表格式异常（非列表/非 sources 包裹）：%s",
                 user_id,
                 type(devices).__name__,
             )
@@ -157,8 +162,8 @@ async def _ensure_camera_streams_inner(
                 _LOGGER.info(
                     "mijia_camera: 已自动在 go2rtc 注册摄像头流 %s", dev_did
                 )
-            else:
-                _REGISTER_FAILED.add(dev_did)
+            # 注册失败不写入 _REGISTER_FAILED：下次取流（WebRTC offer）时
+            # 会再次尝试，保证瞬时失败（如 go2rtc 启动未就绪）后能自愈。
 
     return True
 
