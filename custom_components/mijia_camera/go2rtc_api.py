@@ -110,6 +110,7 @@ async def _ensure_camera_streams_inner(
         return False
 
     # 2) 逐个账号拉取摄像头列表并注册
+    seen_dids: list[str] = []  # 收集 go2rtc 实际返回的设备 DID，便于排查不匹配
     for user_id in user_ids:
         try:
             async with session.get(
@@ -153,6 +154,7 @@ async def _ensure_camera_streams_inner(
             dev_did = _extract_did(source_url)
             if not dev_did:
                 continue
+            seen_dids.append(dev_did)
             if did and dev_did != did:
                 continue
             if dev_did in _REGISTERED or dev_did in _REGISTER_FAILED:
@@ -164,6 +166,20 @@ async def _ensure_camera_streams_inner(
                 )
             # 注册失败不写入 _REGISTER_FAILED：下次取流（WebRTC offer）时
             # 会再次尝试，保证瞬时失败（如 go2rtc 启动未就绪）后能自愈。
+
+    # 指定了具体 did 但仍未注册成功：给出明确告警，避免静默失败。
+    # 常见原因：集成侧 did 与 go2rtc 设备列表里的 did 不一致，或该摄像头
+    # 未出现在 go2rtc 当前登录账号下的设备列表里。
+    if did and did not in _REGISTERED:
+        _LOGGER.warning(
+            "mijia_camera: 目标摄像头 DID %s 未在 go2rtc 设备列表中匹配到"
+            "（go2rtc 返回的设备 DID 共 %d 个：%s）。若两者不一致，请对比"
+            "相机实体的 did 属性与 go2rtc WebUI 设备列表中的 DID；若列表为空，"
+            "请确认 go2rtc 已用正确的小米账号登录且包含该摄像头。",
+            did,
+            len(seen_dids),
+            seen_dids[:20],
+        )
 
     return True
 
