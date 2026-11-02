@@ -197,7 +197,7 @@ class Go2rtcSignaling:
                         f"无法连接 go2rtc 信令服务 {url}：{err}。请确认："
                         f"① go2rtc 已启动且 1984 端口可达；"
                         f"② relay_host 填写的是「运行 go2rtc 的机器」地址"
-                        f"（mi-relay 在另一台 Windows 上时填那台机器的局域网 IP，"
+                        f"（go2rtc 在另一台机器上时填那台机器的局域网 IP，"
                         f"不要填 127.0.0.1，除非 go2rtc 与 HA 同机）。"
                     ),
                 ),
