@@ -219,12 +219,22 @@ class MijiaCamera(Camera):
             # 取流前确保 go2rtc 已存在该 DID 的流（尚未建则自动注册）。
             # HA 启动时若 go2rtc 还没就绪，setup 阶段的全量注册会失败，
             # 这里在第一次真正取流时再补一次，缓存保证不会重复建流。
+            # 把失败原因挂到信令对象上，便于 go2rtc 报 stream not found 时
+            # 把「为什么没建流」直接回显给用户，省去翻日志。
             if self._mode == MODE_RELAY and self._relay_host:
-                await ensure_camera_streams(
+                result = await ensure_camera_streams(
                     hass=self.coordinator.hass,
                     relay_host=self._relay_host,
                     did=self._did,
                 )
+                if self._signaling is not None:
+                    self._signaling.reg_reason = result.reason
+                if not result.registered:
+                    _LOGGER.warning(
+                        "mijia_camera: WebRTC 取流前自动建流未成功（DID %s）：%s",
+                        self._did,
+                        result.reason or "（无详细原因，详见上方日志）",
+                    )
             if self._signaling is None:
                 _LOGGER.warning(
                     "mijia_camera: 收到 WebRTC offer 但中继信令未初始化（非中继模式？）"

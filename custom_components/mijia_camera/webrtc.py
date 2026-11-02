@@ -74,6 +74,9 @@ class Go2rtcSignaling:
     def __init__(self, hass: Any, relay_host: str) -> None:
         self._hass = hass
         self._relay_host = relay_host
+        # 由 camera.py 在取流前自动建流后写入的诊断原因；当 go2rtc 报
+        # stream not found 时一并回显给用户，省去翻 HA 日志。
+        self.reg_reason: str = ""
         self._sessions: dict[str, aiohttp.ClientWebSocketResponse | None] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -173,6 +176,9 @@ class Go2rtcSignaling:
                         _LOGGER.warning(
                             "mijia_camera: go2rtc 信令返回错误: %s", value
                         )
+                        detail = ""
+                        if self.reg_reason:
+                            detail = f" 自动建流诊断：{self.reg_reason}"
                         async with lock:
                             self._safe_send(
                                 send_message,
@@ -181,7 +187,7 @@ class Go2rtcSignaling:
                                     message=(
                                         f"go2rtc 返回错误：{value}。请检查 go2rtc "
                                         f"是否已用小米账号登录、以及 streams 中流名"
-                                        f"是否恰好等于摄像头 DID（{did}）。"
+                                        f"是否恰好等于摄像头 DID（{did}）。{detail}"
                                     ),
                                 ),
                             )
